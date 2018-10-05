@@ -30,6 +30,7 @@ namespace SevenArk
             public int currentIndex;
             public TimeInfo info;
             public bool repeat;
+            public float delaySavedTime;
 
             public bool useSequence;
             public float optionalSequenceTime;
@@ -76,6 +77,7 @@ namespace SevenArk
             timers.Add(instance.id, new TimeInfoIndexed()
             {
                 repeat = true,
+                delaySavedTime = delay,
                 currentIndex = 0,
                 info = new TimeInfo() { nodes = timeNodes }
             });
@@ -181,13 +183,17 @@ namespace SevenArk
                     timers[key].info.nodes[timers[key].currentIndex].time -= Time.deltaTime;
 
                     //If the timer has run out
-                    if (timers[key].info.nodes[timers[key].currentIndex].time < 0)
+                    if (timers[key].info.nodes[timers[key].currentIndex].time <= 0)
                     {
                         //Run the callback
                         timers[key].info.nodes[timers[key].currentIndex].callback();
 
                         //Increase the index, if it's over the amount of nodes we have, delete it.
                         TimeInfoIndexed val = timers[key];
+                        if(val.repeat)
+                        {
+                            val.info.nodes[timers[key].currentIndex].time = val.delaySavedTime;
+                        }
                         val.currentIndex++;
                         if (val.currentIndex >= val.info.nodes.Length)
                         {
@@ -213,7 +219,7 @@ namespace SevenArk
                     TimeInfoIndexed val = timers[key];
                     val.optionalSequenceTime -= Time.deltaTime;
 
-                    if(val.optionalSequenceTime < 0)
+                    if(val.optionalSequenceTime <= 0)
                     {
                         //If its time to move to the next step, do so and set the new time
                         if(val.optionalSequence.MoveNext())
@@ -235,3 +241,4 @@ namespace SevenArk
         }
     }
 }
+
