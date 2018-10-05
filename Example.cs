@@ -29,6 +29,8 @@ public class Example : MonoBehaviour
         });
 
         timer.StartTimer(Test());
+	
+	timer.StartTimerRepeating(1, () => { Log("GO"); });
 	}
 
     void Log(string text)
