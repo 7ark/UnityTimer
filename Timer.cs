@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace SevenArk
@@ -29,6 +29,7 @@ namespace SevenArk
         {
             public int currentIndex;
             public TimeInfo info;
+            public bool repeat;
 
             public bool useSequence;
             public float optionalSequenceTime;
@@ -36,6 +37,7 @@ namespace SevenArk
         }
         private Dictionary<long, TimeInfoIndexed> timers = new Dictionary<long, TimeInfoIndexed>();
         private static long idCurrent = 0;
+
         /// <summary>
         /// Delays for a time, then runs the action
         /// </summary>
@@ -51,6 +53,29 @@ namespace SevenArk
             TimeNode[] timeNodes = new[] { new TimeNode() { time = delay, callback = action } };
             timers.Add(instance.id, new TimeInfoIndexed()
             {
+                currentIndex = 0,
+                info = new TimeInfo() { nodes = timeNodes }
+            });
+
+            return instance;
+        }
+
+        /// <summary>
+        /// Delays for a time, then runs the action. Repeats.
+        /// </summary>
+        /// <param name="delay">Time to wait</param>
+        /// <param name="action">Action to run</param>
+        /// <returns>An instance of the timer</returns>
+        public TimerInstance StartTimerRepeating(float delay, System.Action action)
+        {
+            TimerInstance instance = new TimerInstance()
+            {
+                id = idCurrent++
+            };
+            TimeNode[] timeNodes = new[] { new TimeNode() { time = delay, callback = action } };
+            timers.Add(instance.id, new TimeInfoIndexed()
+            {
+                repeat = true,
                 currentIndex = 0,
                 info = new TimeInfo() { nodes = timeNodes }
             });
@@ -164,10 +189,21 @@ namespace SevenArk
                         //Increase the index, if it's over the amount of nodes we have, delete it.
                         TimeInfoIndexed val = timers[key];
                         val.currentIndex++;
-                        timers[key] = val;
                         if (val.currentIndex >= val.info.nodes.Length)
                         {
-                            timers.Remove(key);
+                            if(val.repeat)
+                            {
+                                val.currentIndex = 0;
+                                timers[key] = val;
+                            }
+                            else
+                            {
+                                timers.Remove(key);
+                            }
+                        }
+                        else
+                        {
+                            timers[key] = val;
                         }
                     }
                 }
@@ -199,4 +235,3 @@ namespace SevenArk
         }
     }
 }
-
