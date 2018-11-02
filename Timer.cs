@@ -1,42 +1,37 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace SevenArk
+namespace SevenArk.Utilities
 {
     /// <summary>
     /// Time and action pairing
     /// </summary>
-    public struct TimeNode
+    public class TimeNode
     {
         public float time;
         public System.Action callback;
     }
-    /// <summary>
-    /// Instance class returned from starting a timer
-    /// </summary>
-    public struct TimerInstance
+    public struct TimeInfo
     {
-        public long id;
+        public TimeNode[] nodes;
     }
-    
+    public class TimeInfoIndexed
+    {
+        public int currentIndex;
+        public TimeInfo info;
+        public bool repeat;
+        public float delaySavedTime;
+
+        public bool useSequence;
+        public float optionalSequenceTime;
+        public IEnumerator<float> optionalSequence;
+    }
+
     public class Timer : MonoBehaviour
     {
-        private struct TimeInfo
-        {
-            public TimeNode[] nodes;
-        }
-        private struct TimeInfoIndexed
-        {
-            public int currentIndex;
-            public TimeInfo info;
-            public bool repeat;
-            public float delaySavedTime;
-
-            public bool useSequence;
-            public float optionalSequenceTime;
-            public IEnumerator<float> optionalSequence;
-        }
-        private Dictionary<long, TimeInfoIndexed> timers = new Dictionary<long, TimeInfoIndexed>();
+        private List<TimeInfoIndexed> timers = new List<TimeInfoIndexed>();
+        Queue<TimeInfoIndexed> added = new Queue<TimeInfoIndexed>();
+        Queue<TimeInfoIndexed> removed = new Queue<TimeInfoIndexed>();
         private static long idCurrent = 0;
 
         /// <summary>
@@ -45,18 +40,15 @@ namespace SevenArk
         /// <param name="delay">Time to wait</param>
         /// <param name="action">Action to run</param>
         /// <returns>An instance of the timer</returns>
-        public TimerInstance StartTimer(float delay, System.Action action)
+        public TimeInfoIndexed StartTimer(float delay, System.Action action)
         {
-            TimerInstance instance = new TimerInstance()
-            {
-                id = idCurrent++
-            };
             TimeNode[] timeNodes = new[] { new TimeNode() { time = delay, callback = action } };
-            timers.Add(instance.id, new TimeInfoIndexed()
+            TimeInfoIndexed instance = new TimeInfoIndexed()
             {
                 currentIndex = 0,
                 info = new TimeInfo() { nodes = timeNodes }
-            });
+            };
+            added.Enqueue(instance);
 
             return instance;
         }
@@ -67,20 +59,17 @@ namespace SevenArk
         /// <param name="delay">Time to wait</param>
         /// <param name="action">Action to run</param>
         /// <returns>An instance of the timer</returns>
-        public TimerInstance StartTimerRepeating(float delay, System.Action action)
+        public TimeInfoIndexed StartTimerRepeating(float delay, System.Action action)
         {
-            TimerInstance instance = new TimerInstance()
-            {
-                id = idCurrent++
-            };
             TimeNode[] timeNodes = new[] { new TimeNode() { time = delay, callback = action } };
-            timers.Add(instance.id, new TimeInfoIndexed()
+            TimeInfoIndexed instance = new TimeInfoIndexed()
             {
                 repeat = true,
                 delaySavedTime = delay,
                 currentIndex = 0,
                 info = new TimeInfo() { nodes = timeNodes }
-            });
+            };
+            added.Enqueue(instance);
 
             return instance;
         }
@@ -91,12 +80,8 @@ namespace SevenArk
         /// <param name="uniformDelay">Time to wait between each action</param>
         /// <param name="actions">Actions to run</param>
         /// <returns>An instance of the timer</returns>
-        public TimerInstance StartTimerSequence(float uniformDelay, params System.Action[] actions)
+        public TimeInfoIndexed StartTimerSequence(float uniformDelay, params System.Action[] actions)
         {
-            TimerInstance instance = new TimerInstance()
-            {
-                id = idCurrent++
-            };
             TimeNode[] times = new TimeNode[actions.Length];
             for (int i = 0; i < times.Length; i++)
             {
@@ -106,11 +91,12 @@ namespace SevenArk
                     callback = actions[i]
                 };
             }
-            timers.Add(instance.id, new TimeInfoIndexed()
+            TimeInfoIndexed instance = new TimeInfoIndexed()
             {
                 currentIndex = 0,
                 info = new TimeInfo() { nodes = times }
-            });
+            };
+            added.Enqueue(instance);
 
             return instance;
         }
@@ -120,17 +106,14 @@ namespace SevenArk
         /// </summary>
         /// <param name="sequences">The nodes for each action and time pair</param>
         /// <returns>An instance of the timer</returns>
-        public TimerInstance StartTimerSequence(params TimeNode[] sequences)
+        public TimeInfoIndexed StartTimerSequence(params TimeNode[] sequences)
         {
-            TimerInstance instance = new TimerInstance()
-            {
-                id = idCurrent++
-            };
-            timers.Add(instance.id, new TimeInfoIndexed()
+            TimeInfoIndexed instance = new TimeInfoIndexed()
             {
                 currentIndex = 0,
                 info = new TimeInfo() { nodes = sequences }
-            });
+            };
+            added.Enqueue(instance);
 
             return instance;
         }
@@ -140,18 +123,15 @@ namespace SevenArk
         /// </summary>
         /// <param name="sequence"></param>
         /// <returns>An instance of the timer</returns>
-        public TimerInstance StartTimer(IEnumerator<float> sequence)
+        public TimeInfoIndexed StartTimer(IEnumerator<float> sequence)
         {
-            TimerInstance instance = new TimerInstance()
-            {
-                id = idCurrent++
-            };
-            timers.Add(instance.id, new TimeInfoIndexed()
+            TimeInfoIndexed instance = new TimeInfoIndexed()
             {
                 useSequence = true,
                 optionalSequenceTime = sequence.Current,
                 optionalSequence = sequence
-            });
+            };
+            added.Enqueue(instance);
 
             return instance;
         }
@@ -161,11 +141,11 @@ namespace SevenArk
         /// </summary>
         /// <param name="instance"></param>
         /// <returns>If the timer was found and stopped</returns>
-        public bool StopTimer(TimerInstance instance)
+        public bool StopTimer(TimeInfoIndexed instance)
         {
-            if(timers.ContainsKey(instance.id))
+            if(timers.Contains(instance) && !removed.Contains(instance))
             {
-                timers.Remove(instance.id);
+                removed.Enqueue(instance);
                 return true;
             }
             return false;
@@ -173,68 +153,66 @@ namespace SevenArk
 
         private void Update()
         {
-            List<long> keys = new List<long>(timers.Keys);
-            //Go through all the timers set
-            foreach(long key in keys)
+            while(added.Count > 0)
             {
-                if(timers[key].useSequence == false)
+                timers.Add(added.Dequeue());
+            }
+
+            while(removed.Count > 0)
+            {
+                timers.Remove(removed.Dequeue());
+            }
+
+            for (int i = timers.Count - 1; i >= 0; i--)
+            {
+                TimeInfoIndexed currentTimer = timers[i];
+                if (currentTimer.useSequence == false)
                 {
+                    TimeNode currentNode = currentTimer.info.nodes[currentTimer.currentIndex];
                     //Whatever the current index is, reduce its time by deltaTime
-                    timers[key].info.nodes[timers[key].currentIndex].time -= Time.deltaTime;
+                    currentNode.time -= Time.deltaTime;
 
                     //If the timer has run out
-                    if (timers[key].info.nodes[timers[key].currentIndex].time <= 0)
+                    if (currentNode.time <= 0)
                     {
                         //Run the callback
-                        timers[key].info.nodes[timers[key].currentIndex].callback();
+                        currentNode.callback();
 
                         //Increase the index, if it's over the amount of nodes we have, delete it.
-                        TimeInfoIndexed val = timers[key];
-                        if(val.repeat)
+                        if (currentTimer.repeat)
                         {
-                            val.info.nodes[timers[key].currentIndex].time = val.delaySavedTime;
+                            currentNode.time = currentTimer.delaySavedTime;
                         }
-                        val.currentIndex++;
-                        if (val.currentIndex >= val.info.nodes.Length)
+                        currentTimer.currentIndex++;
+                        if (currentTimer.currentIndex >= currentTimer.info.nodes.Length)
                         {
-                            if(val.repeat)
+                            if (currentTimer.repeat)
                             {
-                                val.currentIndex = 0;
-                                timers[key] = val;
+                                currentTimer.currentIndex = 0;
                             }
                             else
                             {
-                                timers.Remove(key);
+                                timers.RemoveAt(i);
                             }
-                        }
-                        else
-                        {
-                            timers[key] = val;
                         }
                     }
                 }
                 else
                 {
                     //Decrease the time
-                    TimeInfoIndexed val = timers[key];
-                    val.optionalSequenceTime -= Time.deltaTime;
+                    currentTimer.optionalSequenceTime -= Time.deltaTime;
 
-                    if(val.optionalSequenceTime <= 0)
+                    if (currentTimer.optionalSequenceTime <= 0)
                     {
                         //If its time to move to the next step, do so and set the new time
-                        if(val.optionalSequence.MoveNext())
+                        if (currentTimer.optionalSequence.MoveNext())
                         {
-                            val.optionalSequenceTime = val.optionalSequence.Current;
-                            timers[key] = val;
+                            currentTimer.optionalSequenceTime = currentTimer.optionalSequence.Current;
                         }
                         else
                         {
-                            timers.Remove(key);
+                            timers.RemoveAt(i);
                         }
-                    }
-                    else
-                    {
-                        timers[key] = val;
                     }
                 }
             }
